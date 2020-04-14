@@ -1,3 +1,5 @@
+import time
+
 from clover_ui import Facade
 from clover_ui.dashboard import generate_dashboard
 from clover_ui.transactions import generate_transactions_list
@@ -15,7 +17,6 @@ categories = pd.DataFrame(categories)
 
 transactions = clover.fetch_transactions()
 transactions = pd.DataFrame(transactions)
-transactions = transactions.loc[transactions.category_name != "uncategorised"]
 transactions = transactions.merge(categories, how="left", left_on="category_name", right_on="name")
 transactions.index = pd.to_datetime(transactions.time)
 transactions["days"] = transactions.index.floor("d")
@@ -33,9 +34,6 @@ SIDEBAR_STYLE = {
     "background-color": "#f8f9fa",
 }
 
-
-FILTERBAR_STYLE = {}
-
 # the styles for the main content position it to the right of the sidebar and
 # add some padding.
 CONTENT_STYLE = {
@@ -52,7 +50,7 @@ elements = [
 ]
 button_ids = []
 for year, year_df in transactions.groupby(pd.Grouper(freq="YS")):
-    elements.append(html.P(year.year, className="lead", style={"padding-top": "0.5cm"}))
+    elements.append(html.P(year.year, className="lead", style={"padding-top": "0.2cm"}))
     for month, month_df in year_df.groupby(pd.Grouper(freq="M")):
         button_id = f"{month.month_name()}-{year.year}"
         button_ids.append(button_id)
@@ -87,50 +85,16 @@ sidebar = html.Div(
             vertical=True,
             pills=True,
         ),
-        html.H4("Filter", style={"padding-top": "3cm"}),
+        html.H4("Filter", style={"padding-top": "1cm"}),
         switches,
         html.Div(elements),
     ],
     style=SIDEBAR_STYLE,
 )
 
-test = html.H1(id="filters", style=CONTENT_STYLE)
-
 content = html.Div(id="page-content", style=CONTENT_STYLE)
 
-app.layout = html.Div([dcc.Location(id="url"), sidebar, test, content])
-
-
-@app.callback(
-    Output("filters", "children"),
-    [Input("switches-input", "value"), Input("All", "n_clicks")]
-    + [Input(button_id, "n_clicks") for button_id in button_ids],
-)
-def filter_transactions(switches_value, *args):
-
-    output = "Filters:\n"
-
-    # Get the month filter
-    context = dash.callback_context
-    if not context.triggered:
-        button_id = "No clicks yet"
-    else:
-        button_id = context.triggered[0]["prop_id"].split(".")[0]
-
-    # Filter by transaction type
-    if "hide_transfers" in switches_value:
-        output += "\t Hiding transfers\n"
-    if "hide_uncategorised" in switches_value:
-        output += "\t Hiding uncategorised\n"
-
-    # Filter by month
-    if button_id in ["All", "No clicks yet"]:
-        output += "Not filtering by month"
-    else:
-        output += f"Showing transactions for: {button_id}"
-
-    return output
-
+app.layout = html.Div([dcc.Location(id="url"), sidebar, content])
 
 # this callback uses the current pathname to set the active state of the
 # corresponding nav link to true, allowing users to tell see page they are on
@@ -144,12 +108,34 @@ def toggle_active_links(pathname):
     return [pathname == f"/page-{i}" for i in range(1, 4)]
 
 
-@app.callback(Output("page-content", "children"), [Input("url", "pathname")])
-def render_page_content(pathname):
+@app.callback(
+    Output("page-content", "children"),
+    [Input("url", "pathname"), Input("switches-input", "value"), Input("All", "n_clicks")]
+    + [Input(button_id, "n_clicks") for button_id in button_ids],
+)
+def render_page_content(pathname, switches_value, *args):
+
+    df = transactions.copy()
+
+    # Filter by transaction type
+    if "hide_transfers" in switches_value:
+        df = df.loc[df.transaction_type != "Transfer"]
+    if "hide_uncategorised" in switches_value:
+        df = df.loc[df.category_name != "uncategorised"]
+
+    # Get the month filter
+    context = dash.callback_context
+    if context.triggered:
+        button_id = context.triggered[0]["prop_id"].split(".")[0]
+        if button_id in button_ids:
+            month, year = button_id.split("-")
+            df = df[df.index.year == time.strptime(year, "%Y").tm_year]
+            df = df[df.index.month == time.strptime(month, "%B").tm_mon]
+
     if pathname in ["/", "/page-1"]:
-        return generate_dashboard(transactions)
+        return generate_dashboard(df)
     elif pathname == "/page-2":
-        return generate_transactions_list(transactions)
+        return generate_transactions_list(df)
     elif pathname == "/page-3":
         return html.P("Oh cool, this is page 3!")
     # If the user tries to reach a different page, return a 404 message
