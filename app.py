@@ -47,16 +47,29 @@ CONTENT_STYLE = {
 
 elements = [
     dbc.Label("By month", style={"padding-top": "1cm"}),
+    html.Br(),
+    dbc.Button("Show all dates", color="light", id="All"),
 ]
+button_ids = []
 for year, year_df in transactions.groupby(pd.Grouper(freq="YS")):
     elements.append(html.P(year.year, className="lead", style={"padding-top": "0.5cm"}))
     for month, month_df in year_df.groupby(pd.Grouper(freq="M")):
-        elements.append(dbc.Button(month.month_name(), color="light", id=f"{month.month_name()}-{year.year}"))
+        button_id = f"{month.month_name()}-{year.year}"
+        button_ids.append(button_id)
+        elements.append(dbc.Button(month.month_name(), color="light", id=button_id))
 
 switches = dbc.FormGroup(
     [
         dbc.Label("By transaction type"),
-        dbc.Checklist(options=[{"label": "Show transfers", "value": 1},], value=[], id="switches-input", switch=True,),
+        dbc.Checklist(
+            options=[
+                {"label": "Hide transfers", "value": "hide_transfers"},
+                {"label": "Hide uncategorised", "value": "hide_uncategorised"},
+            ],
+            value=["hide_transfers", "hide_uncategorised"],
+            id="switches-input",
+            switch=True,
+        ),
     ]
 )
 
@@ -81,9 +94,42 @@ sidebar = html.Div(
     style=SIDEBAR_STYLE,
 )
 
+test = html.H1(id="filters", style=CONTENT_STYLE)
+
 content = html.Div(id="page-content", style=CONTENT_STYLE)
 
-app.layout = html.Div([dcc.Location(id="url"), sidebar, content])
+app.layout = html.Div([dcc.Location(id="url"), sidebar, test, content])
+
+
+@app.callback(
+    Output("filters", "children"),
+    [Input("switches-input", "value"), Input("All", "n_clicks")]
+    + [Input(button_id, "n_clicks") for button_id in button_ids],
+)
+def filter_transactions(switches_value, *args):
+
+    output = "Filters:\n"
+
+    # Get the month filter
+    context = dash.callback_context
+    if not context.triggered:
+        button_id = "No clicks yet"
+    else:
+        button_id = context.triggered[0]["prop_id"].split(".")[0]
+
+    # Filter by transaction type
+    if "hide_transfers" in switches_value:
+        output += "\t Hiding transfers\n"
+    if "hide_uncategorised" in switches_value:
+        output += "\t Hiding uncategorised\n"
+
+    # Filter by month
+    if button_id in ["All", "No clicks yet"]:
+        output += "Not filtering by month"
+    else:
+        output += f"Showing transactions for: {button_id}"
+
+    return output
 
 
 # this callback uses the current pathname to set the active state of the
@@ -107,13 +153,7 @@ def render_page_content(pathname):
     elif pathname == "/page-3":
         return html.P("Oh cool, this is page 3!")
     # If the user tries to reach a different page, return a 404 message
-    return dbc.Jumbotron(
-        [
-            html.H1("404: Not found", className="text-danger"),
-            html.Hr(),
-            html.P(f"The pathname {pathname} was not recognised..."),
-        ]
-    )
+    return dbc.Jumbotron([html.H1("Oops!"), html.P(f"We couldn't find the page you're looking for"),])
 
 
 if __name__ == "__main__":
