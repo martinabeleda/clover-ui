@@ -1,2 +1,2 @@
-# clover-ui
-A budgeting web application
+# Clover UI
+A web app for budgeting
